@@ -3,6 +3,8 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\Validator;
 
 class CreateProductRequest extends FormRequest
 {
@@ -23,7 +25,26 @@ class CreateProductRequest extends FormRequest
     {
         return [
             'name' => 'string|required',
-            'price' => 'decimal:0,2|required',
+            'price' => 'decimal:0,2|required|min:0',
+            'category_id' => 'int|required|exists:categories,id'
         ];
+    }
+
+    public function messages()
+    {
+        return [
+            'category_id.exists' => 'Category does not exist'
+        ];
+    }
+
+    public function failedValidation(\Illuminate\Contracts\Validation\Validator $validator)
+    {
+        $errors = $validator->errors();
+        throw new HttpResponseException(
+            response()->json([
+                'status' => 'failed',
+                'message' => 'Validation Failed',
+                'errors' => $errors
+            ], 400));
     }
 }
