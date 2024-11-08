@@ -3,82 +3,82 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\CreateProductRequest;
+use App\Http\Resources\ProductResource;
+use App\Models\Category;
 use App\Models\Product;
+use App\Repositories\CategoryRepository;
+use App\Repositories\ProductRepository;
 use App\Traits\HttpResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 
 class ProductController extends Controller
 {
+    public function __construct(private readonly CategoryRepository $categoryRepository,
+                                private readonly ProductRepository $productRepository)
+    {
+    }
+
     use HttpResponse;
     public function getAllProducts(Request $request){
         $pageSize = $request->query('pageSize');
-        $price = $request->query('price');
         $category = $request->query('category');
-        $products = Product::query()->with('category');
-        if($category){
-            $products->whereHas('category', function ($query) use ($category) {
-                $query->where('name', 'LIKE', $category . '%');
-            });
-        }
-        if($price){
-            $products->orderBy('price', 'desc');
-        }
+        $products = $this->productRepository->getProducts();
+
+        /************* Query conditions *************/
+        $products->when($request->query('minPrice'), function ($products) use ($request){
+            $products->where('price', '>=' , $request->query('minPrice'));
+        })->when($request->query('maxPrice'), function ($products) use ($request){
+            $products->where('price', '<=' , $request->query('maxPrice'));
+        })->when($request->query('category'), function ($products) use ($request, $category){
+            $products->where('name', 'LIKE', '%' . $category . '%');
+        });
+
+        $count = $products->count();
+
         $products = $products->paginate($pageSize);
-
-
-        return $this->dataSuccess($products->items(), "Products retrieved");
+        return $this->dataSuccess(['count' => $count,'products' => $products->items()], "Products retrieved");
     }
 
     public function createProduct(CreateProductRequest $request){
-        $product = Product::where('name', $request->name)->first();
-        if($request->has('merchant_id')){
-            if($product->merchant_id == $request->merchant_id){
-                return $this->error("Duplicate Product", 400);
+        try {
+            if ($request->user()->can('create', Product::class)){
+                return $this->error('Not authorized', 400);
             }
+
+            $created = $this->productRepository->createProduct($request);
+            if(!$created){
+                return $this->error("Product could not be created", 400);
+            }
+            return $this->dataSuccess($created->makeHidden('id'),"Product Created", 201);
         }
-
-        $created = DB::transaction(function () use ($request){
-            return Product::create([
-                'id' => Str::uuid(),
-                'name' => $request->name,
-                'price' => $request->price,
-                'slug' => Str::slug($request->name) . '-' . now()->toDateString() . '-' . rand(1, 20) ,
-                'merchant_id' => 7,
-                'category_id' => $request->category_id
-            ]);
-        });
-
-        if(!$created){
-            return $this->error("Product could not be created", 400);
+        catch (\Exception $exception){
+            Log::error('Something went wrong : ' . $exception);
+            return $this->error('Something went wrong', 500);
         }
-        return $this->success("Product Created", 201);
-
     }
 
     public function updateProduct(Request $request, $id){
-        $request->validate([
+        $validator = Validator::make($request->all(), [
             'name' => 'string',
-            'price' => 'decimal:0,2'
+            'price' => 'decimal:0,2',
+            'category_id' => 'int'
         ]);
 
-        $product = Product::find($id);
+        if ($validator->fails()){
+            return $this->requestError($validator->errors());
+        }
+
+        $product = $this->productRepository->getProductById($id);
         if(!$product){
-            if($product->merchant_id == $request->merchant_id && $product->name == $request->name){
-                return $this->error("Duplicate Products", 400);
-            }
             return $this->error("Product not found", 404);
         }
-        $updated = false;
 
-        $updated = DB::transaction(function () use($request, $product){
-           $product->name = $request->name ?? $product->name;
-           $product->price = $request->price ?? $product->price;
-           $product->slug = Str::slug($request->name) . now()->toDateTimeString() ?? $product->slug;
-           return true;
-        });
+        $updated = $this->updateProduct($request, $product);
 
         if(!$updated){
             return $this->error("Something Went Wrong", 400);
@@ -87,7 +87,7 @@ class ProductController extends Controller
     }
 
     public function deleteProduct($id){
-        $product = Product::find($id);
+        $product = $this->productRepository->getProductById($id);
         if(!$product){
             return $this->error("Product does not exist", 404);
         }

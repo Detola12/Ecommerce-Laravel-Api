@@ -25,8 +25,8 @@ trait HttpResponse
         }
         return response()->json([
             'status' => 'Success',
-            'data' => $data,
-            'message' => $message
+            'message' => $message,
+            'data' => $data
         ], $code);
     }
     protected function error($message, $code) : JsonResponse
@@ -34,6 +34,12 @@ trait HttpResponse
         return response()->json([
             'status' => 'Error',
             'message' => $message,
+        ], $code);
+    }
+    protected function requestError($data, $code = 422){
+        return response()->json([
+            'status' => 'Error',
+            'message' => $data,
         ], $code);
     }
 }

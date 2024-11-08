@@ -46,4 +46,14 @@ class User extends Authenticatable
             'password' => 'hashed',
         ];
     }
+
+    public function getIsAdminAttribute()
+    {
+        return $this->role_id === 3;
+    }
+
+    public function getIsMerchantAttribute()
+    {
+        return $this->role_id === 2;
+    }
 }

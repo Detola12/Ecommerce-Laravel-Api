@@ -9,7 +9,7 @@ class Product extends Model
 {
     use HasFactory;
     protected $guarded = [];
-
+    protected $keyType = 'string';
     protected $hidden = ['category'];
     public function category(){
         return $this->belongsTo(Category::class, 'category_id');

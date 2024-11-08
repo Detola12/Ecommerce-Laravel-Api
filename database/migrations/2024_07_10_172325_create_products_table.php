@@ -17,7 +17,7 @@ return new class extends Migration
             $table->decimal('price', 10);
             $table->string('slug', 110)->unique();
             $table->longText('description')->nullable();
-            $table->foreignId('merchant_id')->constrained('users')->cascadeOnUpdate()->cascadeOnDelete();
+//            $table->foreignId('merchant_id')->constrained('users')->cascadeOnUpdate()->cascadeOnDelete();
             $table->foreignId('category_id')->constrained('categories')->cascadeOnUpdate()->cascadeOnDelete();
             $table->timestamps();
         });

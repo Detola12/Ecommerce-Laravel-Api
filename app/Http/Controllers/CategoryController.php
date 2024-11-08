@@ -3,56 +3,47 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\CreateCategoryRequest;
+use App\Http\Resources\CategoryResource;
 use App\Models\Category;
+use App\Repositories\CategoryRepository;
 use App\Traits\HttpResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use mysql_xdevapi\Exception;
 
 class CategoryController extends Controller
 {
+    public function __construct(private CategoryRepository $categoryRepository)
+    {
+    }
+
     use HttpResponse;
     public function getAllCategories(){
-        $categories = Category::paginate(2);
-        return $this->dataSuccess($categories);
+        $categories = $this->categoryRepository->getCategories();
+        return $this->dataSuccess($categories, 'Categories fetched');
     }
 
     public function createCategory(CreateCategoryRequest $request){
         try {
-            if($request->has('parent_id')) {
-                $category = Category::where('id', $request->parent_id)->first();
-                if (!$category) {
-                    return $this->error("Parent Category does not exist", 404);
-                }
-
-                $created = DB::transaction(function () use ($request, $category) {
-                    if ($category) {
-                        $category->sub_category += 1;
-                        $category->save();
-                    }
-                    return Category::create([
-                        'name' => $request->name,
-                        'parent_id' => $category->id ?? null
-                    ]);
-                });
-
-                if (!$created) {
-                    return $this->error('Category could not be created', 400);
-                }
-                return $this->success('Category Created Successfully');
+            if($request->user()->cannot('create', Category::class)){
+                return $this->error('Not authorized', 400);
             }
-
-            $created = DB::transaction(function () use ($request) {
+            $category = $this->categoryRepository->categoryById($request->parent_id);
+            $created = DB::transaction(function () use ($request, $category) {
+                if ($category) {
+                    $category->sub_category += 1;
+                    $category->save();
+                }
                 return Category::create([
                     'name' => $request->name,
-                    'parent_id' =>  null
+                    'parent_id' => $category->id ?? null
                 ]);
             });
-            if (!$created) {
-                return $this->error('Category could not be created', 400);
-            }
-            return $this->success('Category Created Successfully');
 
+            return $created
+                ? $this->success('Category Created Successfully')
+                : $this->error('Category could not be created', 400);
 
         }
         catch (\Exception $e){
@@ -61,42 +52,39 @@ class CategoryController extends Controller
     }
 
     public function updateCategory(Request $request, $id){
+        if($request->user()->cannot('update', Category::class)){
+            return $this->error('Not authorized', 400);
+        }
         try {
             $request->validate([
                 'name' => 'string',
-                'parent_id' => 'integer'
+                'parent_id' => 'string'
             ]);
-            $category = Category::find($id);
+            $category = $this->categoryRepository->categoryById($id);
             if(!$category){
                 return $this->error("Category does not exists", 404);
             }
-            $parentId = $request->input('parent_id');
-            if($parentId){
-                $parentCategory = Category::find($parentId);
-                if (!$parentCategory){
-                    return $this->error("Parent category does not exists", 404);
-                }
-                $updated = DB::transaction( function () use($request, $category){
-                    $category->name = $request->name ?? $category->name;
-                    $category->parent_id = $request->parent_id ?? $category->parent_id;
-                    $category->save();
-                });
+            $parentCategory = $request->has('parent_id') ? $this->categoryRepository->categoryById($request->parent_id) : null;
+            if ($request->has('parent_id') && $parentCategory->isEmpty()){
+                return $this->error("Parent category does not exists", 404);
             }
-            else{
-                $updated = DB::transaction( function () use($request, $category){
-                    $category->name = $request->name ?? $category->name;
-                    $category->save();
-                });
-            }
-            return $this->success("Category Updated", $updated);
+            $updated = DB::transaction( function () use($request, $category){
+                $category->name = $request->name ?? $category->name;
+                $category->parent_id = $request->parent_id ?? $category->parent_id;
+                $category->save();
+            });
 
+            return $this->success('Category Updated');
         }
         catch (\Exception $e){
             return $this->error($e->getMessage(), 400);
         }
     }
 
-    public function deleteCategory($id){
+    public function deleteCategory(Request $request,$id){
+        if($request->user()->cannot('update', Category::class)){
+            return $this->error('Not authorized', 400);
+        }
         $category = Category::find($id);
         if(!$category){
             return $this->error("Category does not exist", 404);
